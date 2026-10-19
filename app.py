@@ -159,6 +159,27 @@ class AgentState(TypedDict):
     log: Annotated[list[str], operator.add]
 
 
+# ── Python Runner Helper (Ensures pytest & flake8 work across all environments) ─
+def get_python_runner() -> str:
+    """Find the best Python binary that has pytest available."""
+    candidates = [
+        sys.executable,
+        "/opt/anaconda3/bin/python3",
+        "/opt/anaconda3/bin/python",
+        "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3",
+        "python3",
+        "python",
+    ]
+    for cand in candidates:
+        try:
+            res = subprocess.run([cand, "-m", "pytest", "--version"], capture_output=True, timeout=2)
+            if res.returncode == 0:
+                return cand
+        except Exception:
+            pass
+    return sys.executable
+
+
 # ── Static Analysis Helper (AST + Flake8) – Slide 7 ─────────────────────────
 def run_static_analysis(code: str) -> tuple[bool, str]:
     """Perform AST syntax parse and Flake8 linter check."""
@@ -171,9 +192,10 @@ def run_static_analysis(code: str) -> tuple[bool, str]:
         f.write(code)
         f_name = f.name
 
+    py_bin = get_python_runner()
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "flake8", "--isolated", "--select=E9,F63,F7,F82", f_name],
+            [py_bin, "-m", "flake8", "--isolated", "--select=E9,F63,F7,F82", f_name],
             capture_output=True,
             text=True,
             timeout=5,
@@ -245,12 +267,17 @@ def executor_node(state: AgentState) -> dict:
             with open(os.path.join(tmp, name), "w") as f:
                 f.write(content)
 
+        env = os.environ.copy()
+        env["PYTHONPATH"] = tmp + (":" + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
+        py_bin = get_python_runner()
+
         try:
             proc = subprocess.run(
-                [sys.executable, "-m", "pytest", "-q", "--no-header", "test_solution.py"],
+                [py_bin, "-m", "pytest", "-q", "--no-header", "test_solution.py"],
                 cwd=tmp,
                 capture_output=True,
                 text=True,
+                env=env,
                 timeout=10,
             )
             raw_output = (proc.stdout + "\n" + proc.stderr).strip()
