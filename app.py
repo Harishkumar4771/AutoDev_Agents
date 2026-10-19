@@ -51,7 +51,7 @@ import re
 
 def validate_indian_mobile(number):
     '''Validate an Indian mobile number (10 digits starting with 6-9).'''
-    return bool(re.match(r'^[6-9]\\d{9}$', number.strip()))
+    return bool(re.match(r'^[6-9]\d{9}$', number.strip()))
 """,
         "code_v2": """\
 import re
@@ -59,7 +59,7 @@ import re
 def validate_indian_mobile(number):
     '''Validate an Indian mobile number with optional +91/91 prefix.'''
     cleaned = number.strip().replace(' ', '')
-    return bool(re.match(r'^(\\+91|91)?[6-9]\\d{9}$', cleaned))
+    return bool(re.match(r'^(\+91|91)?[6-9]\d{9}$', cleaned))
 """,
         "tests": """\
 from solution import validate_indian_mobile
