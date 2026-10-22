@@ -1,45 +1,74 @@
 # 🤖 AutoDev Agents
 
 A **multi-agent coding pipeline** built with [LangGraph](https://github.com/langchain-ai/langgraph) and [Streamlit](https://streamlit.io/).  
-It takes a coding requirement, writes code and tests, runs them, and loops until the tests pass — all orchestrated as a LangGraph `StateGraph`.
+It takes a coding requirement, writes code and tests, runs them in an isolated sandbox, and loops until tests pass — all orchestrated as a LangGraph `StateGraph`.
 
-## How It Works
+## 👥 The 6 Agents
 
-| Agent | Role |
-|-------|------|
-| **Planner** | Outlines tasks and edge cases for the selected requirement |
-| **Developer** | Writes code (v1 on first attempt; applies a fix on retry) |
-| **Test Agent** | Generates a 5-test pytest suite (independent of the code) |
-| **Executor** | Writes code + tests to a temp dir and runs `pytest -q` for real |
-| **Critic** | Runs `ast.parse` as a static check, then inspects pytest results to decide: **pass**, **retry**, or **escalate** |
+| # | Agent | Role | Implementation |
+|---|-------|------|----------------|
+| **0** | **Code Generation Agent** 🆕 | Synthesises code, tests, and task breakdown from natural language requirements | Ollama LLM (`codellama`) + Smart Keyword Fallback |
+| **1** | **Planner** | Outlines tasks, function signature, and edge cases | LangGraph Node |
+| **2** | **Developer** | Writes initial code draft and applies patches based on Critic diagnosis | Canned preset / LLM patch on retry |
+| **3** | **Test Agent** | Generates a 5-test pytest suite (strictly blind to the code) | Independent test generator |
+| **4** | **Executor** | Writes code + tests to a temporary directory and executes `pytest` | Isolated subprocess runner with timeout |
+| **5** | **Critic** | Runs `ast` + `flake8` static checks and inspects pytest output to decide **pass**, **retry**, or **escalate** | Static Analysis + Test Judge hard gate |
 
 ### Pipeline Flow
 
 ```
-Planner ──┬──→ Developer  ──┐
-          └──→ Test Agent ──┘──→ Executor ──→ Critic
-                                                │
-                              ┌─────────────────┤
-                              ▼                  ▼
-                          Developer           END
-                         (retry loop)     (pass / escalate)
+                    START
+                      │
+                      ▼
+          [0] Code Generation Agent
+             (LLM / Fallback Synth)
+                      │
+                      ▼
+              [1] Planner Agent
+             (Tasks & Edge Cases)
+                      │
+          ┌───────────┴───────────┐
+          ▼                       ▼
+    [2] Developer            [3] Test Agent
+     (Code Draft)          (Blind Pytest Suite)
+          │                       │
+          └───────────┬───────────┘
+                      ▼
+              [4] Executor Agent
+             (Sandbox Pytest Run)
+                      │
+                      ▼
+               [5] Critic Agent
+           (AST + Flake8 + Pytest)
+                      │
+           ┌──────────┼──────────┐
+           ▼          ▼          ▼
+         retry       pass     escalate
+           │          │          │
+     [2] Developer   END        END
+      (Patch code)
 ```
 
-## ⚠️ Mocked LLM
+## 🧠 Hybrid Engine: LLM + Deterministic Presets
 
-There are **no API keys, no Ollama, no network calls**.  
-The "LLM" is a Python dictionary of canned outputs, so the fail → fix → pass loop is **fully deterministic**:
+1. **Preset Requirements (Deterministic Benchmark):**
+   - **Second-largest unique number** — v1 fails on duplicates; v2 patches with deduplication.
+   - **Validate Indian mobile number** — v1 fails on `+91`/`91` prefix; v2 regex fix.
+   - **Palindrome check (ignore case & punctuation)** — v1 fails on punctuation; v2 cleans symbols.
 
-1. **Attempt 1** — Developer returns *buggy* code (v1), some tests fail, Critic explains why and retries.
-2. **Attempt 2** — Developer returns the *fixed* code (v2), all tests pass, Critic verdict: **PASS**.
+2. **Custom Requirement Mode (Real Code Generation):**
+   - Enter any custom Python coding task in natural language.
+   - **Code Generation Agent** connects to local **Ollama** (`codellama` / `llama3`) or uses smart keyword synthesis when offline.
+   - The generated code is put through the same Planner → Test Agent → Executor → Critic test-fail-fix loop!
 
-## Preset Requirements
+## ⚡ Agent Health Check Dashboard
 
-1. **Second-largest unique number** — v1 fails on duplicates
-2. **Validate Indian mobile number** — v1 fails on `+91` prefix
-3. **Palindrome check (ignore case & punctuation)** — v1 fails on punctuation
+The dashboard provides a real-time status matrix showing every agent's:
+- **Operational status** (OK, Retry, Escalate, Skipped, LLM)
+- **Execution latency** (in milliseconds)
+- **Detailed diagnostic message**
 
-## Run Locally
+## 🚀 Run Locally
 
 ```bash
 # 1. Create a virtual environment (Python 3.11 recommended)
@@ -48,21 +77,19 @@ python3.11 -m venv .venv && source .venv/bin/activate
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Launch the app
+# 3. (Optional) Start Ollama for real local LLM generation
+ollama run codellama
+
+# 4. Launch the app
 streamlit run app.py
 ```
 
-The app opens at `http://localhost:8501`. Select a preset and press **Run Agents**.
+The app opens at `http://localhost:8501`. Select a preset or **Custom Requirement** and press **🚀 Run Agents**.
 
-## Deploy on Streamlit Community Cloud
+## 🛠️ Tech Stack
 
-1. Push this repo to GitHub.
-2. Go to [share.streamlit.io](https://share.streamlit.io) and deploy the repo.
-3. Set the main file to `app.py` — no secrets or environment variables needed.
-
-## Tech Stack
-
-- **Streamlit** — interactive UI with live streaming
+- **Streamlit** — Interactive dark-themed UI with live terminal logs
 - **LangGraph** — `StateGraph` with conditional edges for the retry loop
-- **pytest** — real test execution in a sandboxed temp directory
-- **Python 3.11**
+- **pytest** — Isolated sandbox test execution
+- **flake8 & ast** — Static syntax and linter checks
+- **Ollama** — Optional local LLM endpoint for autonomous code generation
